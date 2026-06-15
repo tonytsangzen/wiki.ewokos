@@ -1,0 +1,2951 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EwokOS - Lightweight Microkernel Operating System</title>
+<meta name="description" content="EwokOS is a lightweight microkernel operating system designed for embedded systems and educational purposes, featuring preemptive multitasking, synchronous IPC, and multi-architecture support.">
+
+<style>
+/* === RESET & BASE === */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #fafafa;
+  --surface: #f4f4f5;
+  --surface-raised: #ffffff;
+  --border: rgba(0,0,0,0.06);
+  --border-strong: rgba(0,0,0,0.10);
+  --text-primary: #18181b;
+  --text-secondary: #71717a;
+  --text-tertiary: #a1a1aa;
+  --accent: #0891b2;
+  --accent-dark: #0e7490;
+  --accent-dim: rgba(8,145,178,0.08);
+  --accent-glow: rgba(8,145,178,0.15);
+  --code: #7c3aed;
+  --green: #059669;
+  --amber: #d97706;
+  --red: #dc2626;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --radius: 12px;
+  --radius-sm: 6px;
+  --transition: 500ms cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+}
+
+html { scroll-behavior: smooth; scroll-snap-type: y mandatory; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  background-image:
+    /* subtle grid */
+    linear-gradient(rgba(0,0,0,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.018) 1px, transparent 1px),
+    /* soft top-right cyan wash */
+    radial-gradient(ellipse 900px 700px at 90% 0%, rgba(8,145,178,0.03) 0%, transparent 70%),
+    /* soft bottom-left violet wash */
+    radial-gradient(ellipse 700px 600px at 10% 100%, rgba(124,58,237,0.02) 0%, transparent 70%);
+  background-size: 48px 48px, 48px 48px, 100% 100%, 100% 100%;
+  background-position: 0 0, 0 0, 0 0, 0 0;
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* === PROGRESS BAR === */
+.slide-progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), #22d3ee);
+  z-index: 200;
+  transition: width 400ms ease;
+  border-radius: 0 2px 2px 0;
+}
+
+/* === SLIDE STRUCTURE === */
+.slide {
+  min-height: 100dvh;
+  scroll-snap-align: start;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 96px 48px;
+  position: relative;
+  overflow: hidden;
+}
+
+.slide-inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 2;
+}
+
+/* === SHARED LABEL === */
+.label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.label::before {
+  content: '';
+  display: inline-block;
+  width: 28px;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.label.center { justify-content: center; }
+.label.center::before { display: none; }
+.label.center::after {
+  content: '';
+  display: inline-block;
+  width: 28px;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* === AMBIENT BACKGROUND === */
+.ambient-glow {
+  position: fixed;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(140px);
+}
+
+.glow-1 {
+  width: 800px; height: 700px;
+  background: radial-gradient(circle, rgba(8,145,178,0.06) 0%, rgba(8,145,178,0.02) 40%, transparent 70%);
+  top: -280px; right: -280px;
+  animation: driftA 26s ease-in-out infinite;
+}
+
+.glow-2 {
+  width: 650px; height: 550px;
+  background: radial-gradient(circle, rgba(124,58,237,0.04) 0%, rgba(124,58,237,0.015) 40%, transparent 70%);
+  bottom: -220px; left: -220px;
+  animation: driftB 32s ease-in-out infinite;
+}
+
+/* per-slide accent backgrounds */
+.slide::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 800ms ease;
+}
+
+/* title slide - extra cyan warmth at top */
+#slide-0::after {
+  background: radial-gradient(ellipse 700px 500px at 50% 0%, rgba(8,145,178,0.05) 0%, transparent 70%);
+  opacity: 1;
+}
+
+/* architecture slide - subtle tech lines feel */
+#slide-2::after {
+  background:
+    linear-gradient(180deg, rgba(8,145,178,0.02) 0%, transparent 40%),
+    linear-gradient(180deg, transparent 60%, rgba(124,58,237,0.015) 100%);
+  opacity: 1;
+}
+
+/* kernel slide - warm amber accent */
+#slide-3::after {
+  background: radial-gradient(ellipse 500px 400px at 80% 20%, rgba(8,145,178,0.02) 0%, transparent 70%);
+  opacity: 1;
+}
+
+/* IPC slide - balanced dual tone */
+#slide-4::after {
+  background:
+    radial-gradient(ellipse 400px 350px at 20% 30%, rgba(8,145,178,0.025) 0%, transparent 70%),
+    radial-gradient(ellipse 400px 350px at 80% 70%, rgba(5,150,105,0.02) 0%, transparent 70%);
+  opacity: 1;
+}
+
+/* start slide - full warm glow */
+#slide-14::after {
+  background: radial-gradient(ellipse 600px 450px at 50% 50%, rgba(8,145,178,0.04) 0%, transparent 70%);
+  opacity: 1;
+}
+
+/* process lifecycle slide */
+#slide-4::after {
+  background: radial-gradient(ellipse 500px 400px at 30% 70%, rgba(124,58,237,0.02) 0%, transparent 70%);
+  opacity: 1;
+}
+
+/* syscall flow slide */
+#slide-6::after {
+  background:
+    linear-gradient(180deg, rgba(8,145,178,0.015) 0%, transparent 50%),
+    linear-gradient(180deg, transparent 50%, rgba(5,150,105,0.015) 100%);
+  opacity: 1;
+}
+
+/* page table slide */
+#slide-8::after {
+  background: radial-gradient(ellipse 450px 350px at 70% 40%, rgba(8,145,178,0.02) 0%, transparent 70%);
+  opacity: 1;
+}
+
+@keyframes driftA {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(120px, 60px) scale(1.15); }
+  66% { transform: translate(-60px, -40px) scale(0.85); }
+}
+
+@keyframes driftB {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-90px, -70px) scale(1.25); }
+  66% { transform: translate(50px, 90px) scale(1.05); }
+}
+
+/* === SCROLL HINT === */
+.scroll-hint {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.3;
+  transition: opacity 400ms ease;
+  animation: hintPulse 3s ease-in-out infinite;
+}
+
+.scroll-hint.hidden { opacity: 0; pointer-events: none; }
+
+.scroll-hint span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+
+.scroll-hint .arrow {
+  width: 20px; height: 20px;
+  border-right: 1px solid var(--text-tertiary);
+  border-bottom: 1px solid var(--text-tertiary);
+  transform: rotate(45deg);
+}
+
+@keyframes hintPulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.5; }
+}
+
+/* === NAVIGATION === */
+.slide-nav {
+  position: fixed;
+  right: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.nav-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 350ms ease;
+  position: relative;
+}
+
+.nav-dot:hover {
+  background: var(--text-secondary);
+  transform: scale(1.3);
+}
+
+.nav-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+  transform: scale(1.2);
+}
+
+.nav-dot .nav-label {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease;
+}
+
+.nav-dot:hover .nav-label { opacity: 1; }
+
+/* === SLIDE COUNTER === */
+.slide-counter {
+  position: fixed;
+  bottom: 36px;
+  left: 44px;
+  z-index: 100;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.06em;
+}
+
+/* === TITLE SLIDE (1) === */
+.slide-title { text-align: center; }
+
+/* decorative geometric ring behind title */
+.slide-title .slide-inner::before {
+  content: '';
+  position: absolute;
+  width: 520px; height: 520px;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px solid rgba(8,145,178,0.06);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.slide-title .slide-inner::after {
+  content: '';
+  position: absolute;
+  width: 380px; height: 380px;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(8,145,178,0.015) 0%, transparent 70%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.slide-title .tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid rgba(8,145,178,0.15);
+  border-radius: 999px;
+  padding: 8px 24px;
+  margin-bottom: 44px;
+}
+
+.slide-title h1 {
+  font-size: clamp(44px, 8vw, 88px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  margin-bottom: 28px;
+}
+
+.slide-title h1 span {
+  color: var(--accent);
+  position: relative;
+}
+
+.slide-title .subtitle {
+  font-size: 18px;
+  color: var(--text-secondary);
+  max-width: 560px;
+  margin: 0 auto 60px;
+  line-height: 1.7;
+}
+
+.slide-title .specs {
+  display: flex;
+  gap: 56px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.slide-title .spec-item {
+  text-align: center;
+  padding: 0 16px;
+}
+
+.slide-title .spec-value {
+  font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 550;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.slide-title .spec-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* === DIVIDER === */
+.section-divider {
+  width: 48px;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.3;
+  margin-bottom: 32px;
+  margin-top: -8px;
+  border-radius: 1px;
+}
+
+/* === PHILOSOPHY SLIDE (2) === */
+.slide-philosophy .grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.slide-philosophy h2 {
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  margin-bottom: 24px;
+}
+
+.slide-philosophy p {
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
+  max-width: 460px;
+}
+
+.slide-philosophy .kernel-vs {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-sm);
+}
+
+.kernel-vs .vs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.kernel-vs .vs-row:last-child { border-bottom: none; }
+
+.kernel-vs .vs-col {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  min-width: 80px;
+  text-align: right;
+}
+
+.kernel-vs .vs-col.mono { color: var(--red); }
+.kernel-vs .vs-col.micro { color: var(--green); }
+
+.kernel-vs .vs-header {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+/* === ARCHITECTURE SLIDE (3) === */
+.slide-arch h2 {
+  text-align: center;
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 48px;
+}
+
+.arch-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.arch-layer {
+  padding: 22px 32px;
+  position: relative;
+}
+
+.arch-layer.user {
+  background: rgba(8,145,178,0.03);
+  border: 1px solid rgba(8,145,178,0.10);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding-bottom: 24px;
+}
+
+.arch-layer .layer-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.arch-layer .layer-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.12;
+}
+
+.arch-services {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.arch-service {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 16px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  transition: all 250ms ease;
+  cursor: default;
+}
+
+.arch-service:hover {
+  border-color: rgba(8,145,178,0.25);
+  color: var(--text-primary);
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+}
+
+.arch-syscall {
+  text-align: center;
+  padding: 14px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.1em;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.arch-syscall::before,
+.arch-syscall::after {
+  content: ' ↓ ';
+  color: var(--accent);
+  opacity: 0.5;
+}
+
+.arch-layer.kernel {
+  background: rgba(124,58,237,0.03);
+  border: 1px solid rgba(124,58,237,0.10);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.arch-layer.kernel .layer-title { color: var(--code); }
+.arch-layer.kernel .layer-title::after { background: var(--code); }
+
+.arch-kernel-mods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.arch-kmod {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--code);
+  text-align: center;
+  transition: all 250ms ease;
+  cursor: default;
+}
+
+.arch-kmod:hover {
+  border-color: rgba(124,58,237,0.25);
+  transform: translateY(-1px);
+}
+
+.arch-hw-strip {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  padding: 18px 0;
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.05em;
+}
+
+.arch-hw-strip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.arch-hw-strip .hw-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* === KERNEL CORE SLIDE (4) === */
+.slide-kernel h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 48px;
+  max-width: 600px;
+}
+
+.kernel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.kernel-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 30px;
+  position: relative;
+  overflow: hidden;
+  transition: all 350ms ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.kernel-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 350ms ease;
+}
+
+.kernel-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.kernel-card:hover::before { opacity: 1; }
+
+.kernel-card .card-icon {
+  font-size: 28px;
+  margin-bottom: 18px;
+  width: 44px; height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+}
+
+.kernel-card h3 {
+  font-size: 16px;
+  font-weight: 550;
+  margin-bottom: 10px;
+  letter-spacing: -0.015em;
+}
+
+.kernel-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+.kernel-card .card-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kernel-card .card-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 999px;
+  padding: 3px 10px;
+  letter-spacing: 0.04em;
+}
+
+/* === IPC SLIDE (5) === */
+.slide-ipc .grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.slide-ipc h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  margin-bottom: 16px;
+}
+
+.slide-ipc p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 32px;
+}
+
+.ipc-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ipc-step {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  transition: background 250ms ease;
+  cursor: default;
+}
+
+.ipc-step:hover { background: var(--surface); }
+
+.ipc-step .step-num {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ipc-step .step-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  min-width: 180px;
+}
+
+.ipc-step .step-fn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--code);
+}
+
+.ipc-visual {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.ipc-visual .ipc-entities {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.ipc-visual .ipc-entity {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 22px 28px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+}
+
+.ipc-visual .ipc-entity.client { border-color: rgba(8,145,178,0.25); border-left: 3px solid var(--accent); }
+.ipc-visual .ipc-entity.server { border-color: rgba(5,150,105,0.25); border-left: 3px solid var(--green); }
+
+.ipc-visual .ipc-arrow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  min-width: 140px;
+}
+
+.ipc-visual .ipc-arrow-line {
+  height: 1px;
+  width: 100%;
+  background: var(--border-strong);
+  position: relative;
+}
+
+.ipc-visual .ipc-arrow-line::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  top: -3px;
+  width: 8px; height: 8px;
+  border-top: 1.5px solid var(--accent);
+  border-right: 1.5px solid var(--accent);
+  transform: rotate(45deg);
+}
+
+.ipc-visual .ipc-arrow-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.08em;
+}
+
+.ipc-visual .ipc-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  text-align: left;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+
+/* === MEMORY SLIDE (6) === */
+.slide-memory h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 44px;
+  max-width: 700px;
+}
+
+.mem-layout {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  margin-bottom: 36px;
+  box-shadow: var(--shadow-sm);
+}
+
+.mem-segment {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  margin: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: background 200ms ease;
+}
+
+.mem-segment:hover { filter: brightness(0.97); }
+
+.mem-segment .mem-name {
+  flex-shrink: 0;
+  width: 170px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.mem-segment .mem-range {
+  flex-shrink: 0;
+  width: 120px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.mem-segment .mem-desc {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.mem-segment.kernel-mem { background: rgba(124,58,237,0.04); border-left: 2px solid rgba(124,58,237,0.25); }
+.mem-segment.user-mem { background: rgba(8,145,178,0.03); border-left: 2px solid rgba(8,145,178,0.20); }
+.mem-segment.mmio-mem { background: rgba(217,119,6,0.03); border-left: 2px solid rgba(217,119,6,0.20); }
+
+.mem-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.mem-feat {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 26px;
+  box-shadow: var(--shadow-sm);
+  transition: all 300ms ease;
+}
+
+.mem-feat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.mem-feat h4 {
+  font-size: 15px;
+  font-weight: 550;
+  margin-bottom: 10px;
+}
+
+.mem-feat p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+/* === SMP SLIDE (7) === */
+.slide-smp h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 14px;
+}
+
+.slide-smp .subhead {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 600px;
+  margin-bottom: 48px;
+  line-height: 1.6;
+}
+
+.smp-diagram {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.smp-core {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 30px 22px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: all 300ms ease;
+  position: relative;
+}
+
+.smp-core:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.smp-core::after {
+  content: '';
+  position: absolute;
+  top: 16px; right: -10px;
+  width: 10px; height: 10px;
+  border-top: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+  opacity: 0;
+}
+
+.smp-core .core-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 14px;
+}
+
+.smp-core .core-queue {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.smp-core .queue-slot {
+  width: 34px; height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: all 300ms ease;
+}
+
+.smp-core .queue-slot.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.smp-core .core-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.smp-ipis {
+  display: flex;
+  justify-content: center;
+  gap: 56px;
+  margin-top: 40px;
+  padding: 22px 28px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.smp-ipis span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.smp-ipis span::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* === SERVICES SLIDE (8) === */
+.slide-services h2 {
+  text-align: center;
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 44px;
+}
+
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.service-cat {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  box-shadow: var(--shadow-sm);
+  transition: all 300ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.service-cat::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.service-cat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.service-cat:hover::before { opacity: 1; }
+
+.service-cat .cat-icon {
+  font-size: 22px;
+  margin-bottom: 14px;
+}
+
+.service-cat h4 {
+  font-size: 14px;
+  font-weight: 550;
+  margin-bottom: 16px;
+  letter-spacing: -0.01em;
+}
+
+.service-cat .svc-item {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  transition: color 200ms ease;
+  cursor: default;
+}
+
+.service-cat .svc-item:hover { color: var(--text-primary); }
+.service-cat .svc-item:last-child { border-bottom: none; }
+
+/* === PLATFORM SLIDE (9) === */
+.slide-platform h2 {
+  text-align: center;
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 44px;
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 22px;
+}
+
+.platform-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 34px 26px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: all 350ms ease;
+}
+
+.platform-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.platform-card .arch-icon {
+  font-size: 36px;
+  margin-bottom: 16px;
+}
+
+.platform-card .arch-name {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 550;
+  margin-bottom: 6px;
+}
+
+.platform-card .arch-variants {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 16px;
+}
+
+.platform-card .arch-boards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.platform-card .board-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 4px 12px;
+  transition: all 200ms ease;
+}
+
+.platform-card .board-tag:hover {
+  background: rgba(8,145,178,0.15);
+  color: var(--accent-dark);
+}
+
+/* === ADVANTAGES SLIDE (10) === */
+.slide-advantages h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 48px;
+  max-width: 600px;
+}
+
+.advantages-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.advantage-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+  box-shadow: var(--shadow-sm);
+  transition: all 350ms ease;
+}
+
+.advantage-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.advantage-card .adv-icon {
+  font-size: 26px;
+  flex-shrink: 0;
+  width: 52px; height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-dim);
+  border-radius: var(--radius-sm);
+}
+
+.advantage-card h4 {
+  font-size: 15px;
+  font-weight: 550;
+  margin-bottom: 6px;
+}
+
+.advantage-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* === PROCESS LIFECYCLE SLIDE === */
+.slide-proc-life h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 44px;
+}
+
+.proc-state-machine {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+}
+
+.proc-state {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 28px;
+  text-align: center;
+  min-width: 140px;
+  box-shadow: var(--shadow-sm);
+  transition: all 300ms ease;
+  position: relative;
+}
+
+.proc-state:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.proc-state .state-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 550;
+  margin-bottom: 6px;
+}
+
+.proc-state .state-desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.proc-state.created   { border-left: 3px solid var(--code); }
+.proc-state.ready     { border-left: 3px solid var(--accent); }
+.proc-state.running   { border-left: 3px solid var(--green); }
+.proc-state.blocked   { border-left: 3px solid var(--amber); }
+.proc-state.zombie    { border-left: 3px solid var(--red); }
+
+.proc-arrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 0 14px;
+  white-space: nowrap;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.proc-arrow span {
+  display: block;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.proc-details {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-top: 36px;
+}
+
+.proc-detail-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+}
+
+.proc-detail-card h4 {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.proc-detail-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.proc-detail-card code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--code);
+}
+
+/* === SYSCALL FLOW SLIDE === */
+.slide-syscall h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 12px;
+}
+
+.slide-syscall .subhead {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 600px;
+  margin-bottom: 44px;
+  line-height: 1.6;
+}
+
+.syscall-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 48px;
+}
+
+.syscall-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.syscall-box {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 20px 28px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  flex: 1;
+  text-align: center;
+  transition: all 300ms ease;
+}
+
+.syscall-box:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.syscall-box.user { border-left: 3px solid var(--accent); }
+.syscall-box.kern { border-left: 3px solid var(--code); }
+
+.syscall-arrow-down {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.syscall-arrow-down::before {
+  content: '↓';
+  display: block;
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.syscall-category {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.syscall-cat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 18px;
+}
+
+.syscall-cat h4 {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.syscall-cat .sc-item {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.syscall-cat .sc-item:last-child { border-bottom: none; }
+
+/* === PAGE TABLE SLIDE === */
+.slide-pagetable h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 12px;
+}
+
+.slide-pagetable .subhead {
+  font-size: 15px;
+  color: var(--text-secondary);
+  max-width: 650px;
+  margin-bottom: 40px;
+  line-height: 1.6;
+}
+
+.pt-walk {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 36px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.pt-level {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  text-align: center;
+  min-width: 170px;
+  box-shadow: var(--shadow-sm);
+}
+
+.pt-level .pt-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+
+.pt-level .pt-boxes {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pt-level .pt-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  transition: all 300ms ease;
+}
+
+.pt-level .pt-box:hover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--text-primary);
+}
+
+.pt-level .pt-box.match {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent-dark);
+  font-weight: 500;
+}
+
+.pt-arrow-between {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  padding-top: 40px;
+}
+
+.pt-arrow-between .pt-arrow-line {
+  width: 40px; height: 1px;
+  background: var(--border-strong);
+  position: relative;
+}
+
+.pt-arrow-between .pt-arrow-line::after {
+  content: '';
+  position: absolute;
+  right: -3px; top: -3px;
+  width: 7px; height: 7px;
+  border-top: 1.5px solid var(--accent);
+  border-right: 1.5px solid var(--accent);
+  transform: rotate(45deg);
+}
+
+.pt-arrow-between .pt-bits {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  letter-spacing: 0.02em;
+}
+
+.pt-result {
+  text-align: center;
+  padding: 18px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(8,145,178,0.15);
+  border-radius: var(--radius);
+  margin-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-dark);
+}
+
+.pt-features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+/* === BOOT SLIDE (11) === */
+.slide-boot h2 {
+  font-size: clamp(24px, 3.5vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  margin-bottom: 44px;
+}
+
+.boot-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  margin-bottom: 52px;
+  flex-wrap: wrap;
+}
+
+.boot-step {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 26px 30px;
+  text-align: center;
+  min-width: 155px;
+  box-shadow: var(--shadow-sm);
+  transition: all 300ms ease;
+  position: relative;
+}
+
+.boot-step:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.boot-step .step-order {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 12px;
+}
+
+.boot-step .step-title {
+  font-size: 14px;
+  font-weight: 550;
+  margin-bottom: 6px;
+}
+
+.boot-step .step-file {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.boot-arrow {
+  font-size: 22px;
+  color: var(--text-tertiary);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+
+.boot-detail {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.boot-detail-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.boot-detail-card h4 {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+.boot-detail-card p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+/* === GET STARTED SLIDE (12) === */
+.slide-start {
+  text-align: center;
+}
+
+.slide-start h2 {
+  font-size: clamp(28px, 5vw, 48px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-bottom: 16px;
+}
+
+.slide-start .subhead {
+  font-size: 16px;
+  color: var(--text-secondary);
+  margin-bottom: 52px;
+  line-height: 1.6;
+}
+
+.code-block {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 36px;
+  text-align: left;
+  max-width: 600px;
+  margin: 0 auto 52px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.code-block::before {
+  content: 'TERMINAL';
+  position: absolute;
+  top: -10px;
+  left: 24px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--text-tertiary);
+  background: var(--bg);
+  padding: 2px 10px;
+  border-radius: 3px;
+}
+
+.code-block .line {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 2.1;
+  color: var(--text-secondary);
+}
+
+.code-block .line .prompt { color: var(--accent); }
+.code-block .line .cmd { color: var(--green); }
+.code-block .line .arg { color: var(--accent); font-weight: 500; }
+.code-block .line .comment { color: var(--text-tertiary); }
+
+.start-links {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 32px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 550;
+  text-decoration: none;
+  transition: all 250ms ease;
+  cursor: pointer;
+  border: none;
+  letter-spacing: -0.01em;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(8,145,178,0.25);
+}
+
+.btn-primary:hover {
+  background: var(--accent-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(8,145,178,0.35);
+}
+
+.btn-primary:active { transform: translateY(0); }
+
+.btn-secondary {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+
+/* === PRINT (PDF Export) === */
+@media print {
+  @page {
+    size: 1920px 1080px;
+    margin: 0;
+  }
+
+  html, body {
+    background: #fafafa !important;
+    background-image: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .slide-progress,
+  .slide-nav,
+  .slide-counter,
+  .scroll-hint,
+  .ambient-glow { display: none !important; }
+
+  html { scroll-snap-type: none; overflow: visible !important; }
+  body { overflow: visible !important; }
+
+  .slide {
+    width: 1920px;
+    height: 1080px;
+    min-height: 1080px;
+    max-height: 1080px;
+    scroll-snap-align: none;
+    page-break-after: always;
+    padding: 50px 60px;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+  }
+
+  .slide::after, .slide::before,
+  .slide-title .slide-inner::before,
+  .slide-title .slide-inner::after { display: none !important; }
+
+  .slide:last-child { page-break-after: avoid; }
+
+  .slide-inner {
+    width: 1800px !important;
+    max-width: 2430px !important;
+    height: 980px;
+    overflow: hidden;
+  }
+
+  .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .slide-title .tag, .slide-title h1, .slide-title .subtitle, .slide-title .specs {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+
+  /* Shrink dense slides to fit one page */
+  .slide-kernel .kernel-grid { gap: 14px; }
+  .slide-kernel .kernel-card { padding: 20px 24px; }
+  .slide-kernel .kernel-card p { font-size: 12px; }
+  .slide-proc-life .proc-state-machine { gap: 4px; margin-bottom: 18px; }
+  .slide-proc-life .proc-state { padding: 12px 16px; min-width: 120px; }
+  .slide-proc-life .proc-state .state-name { font-size: 14px; }
+  .slide-proc-life .proc-details { gap: 10px; margin-top: 18px; }
+  .slide-proc-life .proc-detail-card { padding: 14px 18px; }
+  .slide-ipc .grid-2 { gap: 36px; }
+  .slide-syscall .syscall-diagram { gap: 2px; margin-bottom: 20px; }
+  .slide-syscall .syscall-box { padding: 10px 18px; font-size: 11px; }
+  .slide-syscall .syscall-category { gap: 8px; }
+  .slide-syscall .syscall-cat { padding: 12px 14px; }
+  .slide-memory .mem-segment { padding: 6px 14px; }
+  .slide-memory .mem-layout { margin-bottom: 24px; }
+  .slide-memory .mem-features { gap: 10px; }
+  .slide-memory .mem-feat { padding: 16px 18px; }
+  .slide-pagetable .pt-walk { gap: 10px; margin-bottom: 16px; }
+  .slide-pagetable .pt-level { padding: 14px; min-width: 140px; }
+  .slide-pagetable .pt-level .pt-box { padding: 6px 10px; }
+  .slide-pagetable .pt-features { gap: 10px; }
+  .slide-smp .smp-diagram { gap: 12px; }
+  .slide-smp .smp-core { padding: 16px 14px; }
+  .slide-services .services-grid { gap: 10px; }
+  .slide-services .service-cat { padding: 16px 14px; }
+  .slide-platform .platform-grid { gap: 12px; }
+  .slide-platform .platform-card { padding: 20px 16px; }
+  .slide-advantages .advantages-grid { gap: 12px; }
+  .slide-advantages .advantage-card { padding: 18px 20px; gap: 12px; }
+  .slide-boot .boot-flow { gap: 2px; margin-bottom: 28px; }
+  .slide-boot .boot-step { padding: 18px 20px; min-width: 135px; }
+  .slide-boot .boot-detail { gap: 10px; }
+  .slide-boot .boot-detail-card { padding: 16px 18px; }
+  .slide-start .code-block { margin-bottom: 28px; padding: 18px 24px; }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* === COMPACT SLIDES (reduce height for dense content) === */
+
+/* Slide 4: Kernel Core — shrink cards */
+.slide-kernel h2 { margin-bottom: 32px; }
+.slide-kernel .kernel-grid { gap: 12px; }
+.slide-kernel .kernel-card { padding: 18px 20px; }
+.slide-kernel .kernel-card .card-icon { font-size: 22px; margin-bottom: 8px; width: 32px; height: 32px; }
+.slide-kernel .kernel-card h3 { font-size: 14px; margin-bottom: 4px; }
+.slide-kernel .kernel-card p { font-size: 11px; line-height: 1.45; margin-bottom: 8px; }
+.slide-kernel .kernel-card .card-tag { font-size: 9px; padding: 2px 8px; }
+.slide-kernel .kernel-card .card-meta { gap: 4px; }
+
+/* Slide 7: Syscall Flow — compact diagram */
+.slide-syscall h2 { margin-bottom: 6px; }
+.slide-syscall .subhead { font-size: 13px; margin-bottom: 24px; line-height: 1.4; }
+.slide-syscall .syscall-diagram { gap: 1px; margin-bottom: 20px; }
+.slide-syscall .syscall-box { padding: 8px 16px; font-size: 11px; }
+.slide-syscall .syscall-arrow-down { padding: 4px 0; font-size: 9px; }
+.slide-syscall .syscall-category { gap: 8px; }
+.slide-syscall .syscall-cat { padding: 10px 12px; }
+.slide-syscall .syscall-cat h4 { font-size: 10px; margin-bottom: 6px; }
+.slide-syscall .syscall-cat .sc-item { font-size: 9px; padding: 2px 0; }
+
+/* Slide 9: Page Table — smaller levels + cards */
+.slide-pagetable h2 { margin-bottom: 6px; }
+.slide-pagetable .subhead { font-size: 13px; margin-bottom: 20px; line-height: 1.4; }
+.slide-pagetable .pt-walk { gap: 10px; margin-bottom: 12px; }
+.slide-pagetable .pt-level { padding: 10px; min-width: 130px; }
+.slide-pagetable .pt-level .pt-label { font-size: 9px; margin-bottom: 8px; }
+.slide-pagetable .pt-level .pt-boxes { gap: 4px; }
+.slide-pagetable .pt-level .pt-box { padding: 5px 8px; font-size: 8px; }
+.slide-pagetable .pt-arrow-between { min-width: 40px; padding-top: 28px; }
+.slide-pagetable .pt-arrow-between .pt-arrow-line { width: 24px; }
+.slide-pagetable .pt-arrow-between .pt-bits { font-size: 7px; }
+.slide-pagetable .pt-result { padding: 10px; font-size: 10px; margin-top: 6px; }
+.slide-pagetable .pt-features { gap: 8px; }
+.slide-pagetable .pt-features .mem-feat { padding: 12px 14px; }
+.slide-pagetable .pt-features .mem-feat h4 { font-size: 12px; margin-bottom: 4px; }
+.slide-pagetable .pt-features .mem-feat p { font-size: 10px; line-height: 1.4; }
+
+/* === RESPONSIVE === */
+@media (max-width: 1037px) {
+  .slide { padding: 60px 24px; }
+  .slide-nav { display: none; }
+  .slide-counter { bottom: 20px; left: 24px; font-size: 11px; }
+  .scroll-hint { display: none; }
+
+  .slide-philosophy .grid-2,
+  .slide-ipc .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+
+  .kernel-grid { grid-template-columns: 1fr; }
+  .mem-features { grid-template-columns: 1fr; }
+  .services-grid { grid-template-columns: repeat(2, 1fr); }
+  .platform-grid { grid-template-columns: repeat(2, 1fr); }
+  .advantages-grid { grid-template-columns: 1fr; }
+  .smp-diagram { grid-template-columns: repeat(2, 1fr); }
+  .boot-detail { grid-template-columns: 1fr; }
+
+  .arch-services { grid-template-columns: repeat(2, 1fr); }
+  .arch-kernel-mods { grid-template-columns: repeat(3, 1fr); }
+
+  .boot-flow { gap: 8px; }
+  .boot-arrow { transform: rotate(90deg); }
+
+  .slide-title .specs { gap: 28px; }
+}
+
+/* === ANIMATIONS === */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 650ms var(--transition), transform 650ms var(--transition);
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .reveal-delay-1 { transition-delay: 80ms; }
+  .reveal-delay-2 { transition-delay: 160ms; }
+  .reveal-delay-3 { transition-delay: 240ms; }
+  .reveal-delay-4 { transition-delay: 320ms; }
+
+  .slide-title .tag,
+  .slide-title h1,
+  .slide-title .subtitle,
+  .slide-title .specs {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeUp 750ms var(--transition) forwards;
+  }
+
+  .slide-title .tag { animation-delay: 0ms; }
+  .slide-title h1 { animation-delay: 120ms; }
+  .slide-title .subtitle { animation-delay: 280ms; }
+  .slide-title .specs { animation-delay: 440ms; }
+
+  @keyframes fadeUp {
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; }
+  .scroll-hint { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="slide-progress" id="slideProgress"></div>
+
+<div class="ambient-glow glow-1"></div>
+<div class="ambient-glow glow-2"></div>
+
+<!-- Scroll Hint -->
+<div class="scroll-hint" id="scrollHint">
+  <span>Scroll or press ↓</span>
+  <div class="arrow"></div>
+</div>
+
+<!-- Navigation -->
+<nav class="slide-nav" aria-label="Slide navigation">
+  <button class="nav-dot active" data-slide="0" aria-label="Slide 1"><span class="nav-label">Title</span></button>
+  <button class="nav-dot" data-slide="1" aria-label="Slide 2"><span class="nav-label">Philosophy</span></button>
+  <button class="nav-dot" data-slide="2" aria-label="Slide 3"><span class="nav-label">Architecture</span></button>
+  <button class="nav-dot" data-slide="3" aria-label="Slide 4"><span class="nav-label">Kernel Core</span></button>
+  <button class="nav-dot" data-slide="4" aria-label="Slide 5"><span class="nav-label">Process Lifecycle</span></button>
+  <button class="nav-dot" data-slide="5" aria-label="Slide 6"><span class="nav-label">IPC</span></button>
+  <button class="nav-dot" data-slide="6" aria-label="Slide 7"><span class="nav-label">Syscall Flow</span></button>
+  <button class="nav-dot" data-slide="7" aria-label="Slide 8"><span class="nav-label">Memory</span></button>
+  <button class="nav-dot" data-slide="8" aria-label="Slide 9"><span class="nav-label">Page Table</span></button>
+  <button class="nav-dot" data-slide="9" aria-label="Slide 10"><span class="nav-label">SMP</span></button>
+  <button class="nav-dot" data-slide="10" aria-label="Slide 11"><span class="nav-label">Services</span></button>
+  <button class="nav-dot" data-slide="11" aria-label="Slide 12"><span class="nav-label">Platforms</span></button>
+  <button class="nav-dot" data-slide="12" aria-label="Slide 13"><span class="nav-label">Advantages</span></button>
+  <button class="nav-dot" data-slide="13" aria-label="Slide 14"><span class="nav-label">Boot</span></button>
+  <button class="nav-dot" data-slide="14" aria-label="Slide 15"><span class="nav-label">Start</span></button>
+</nav>
+
+<!-- Slide Counter -->
+<div class="slide-counter">
+  <span id="currentSlide">01</span> / 15
+</div>
+
+<!-- ===== SLIDE 1: TITLE ===== -->
+<section class="slide slide-title" id="slide-0">
+  <div class="slide-inner">
+    <div class="tag">Microkernel Operating System</div>
+    <h1>Ewok<span>OS</span></h1>
+    <p class="subtitle">
+      A lightweight microkernel operating system built for embedded systems
+      and educational exploration. Minimal kernel, maximum modularity.
+    </p>
+    <div class="specs">
+      <div class="spec-item">
+        <div class="spec-value">~96</div>
+        <div class="spec-label">System Calls</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-value">5</div>
+        <div class="spec-label">Architectures</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-value">4 KB</div>
+        <div class="spec-label">Page Size</div>
+      </div>
+      <div class="spec-item">
+        <div class="spec-value">SMP</div>
+        <div class="spec-label">Multi-Core</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 2: DESIGN PHILOSOPHY ===== -->
+<section class="slide slide-philosophy" id="slide-1">
+  <div class="slide-inner">
+    <div class="grid-2">
+      <div>
+        <div class="label">Design Philosophy</div>
+        <div class="section-divider"></div>
+        <h2>Why a Microkernel?</h2>
+        <p>
+          In a microkernel architecture, only the absolute minimum runs in privileged
+          kernel mode: scheduling, IPC, and memory management. Everything else - device
+          drivers, file systems, network stacks - runs as isolated user-space processes.
+          A fault in a driver cannot crash the kernel. The system stays resilient.
+        </p>
+      </div>
+      <div class="kernel-vs">
+        <div class="vs-row vs-header">
+          <span>Capability</span>
+          <span class="vs-col mono">Monolithic</span>
+          <span class="vs-col micro">Microkernel</span>
+        </div>
+        <div class="vs-row">
+          <span>Device Drivers</span>
+          <span class="vs-col mono">Kernel</span>
+          <span class="vs-col micro">User Space</span>
+        </div>
+        <div class="vs-row">
+          <span>File Systems</span>
+          <span class="vs-col mono">Kernel</span>
+          <span class="vs-col micro">User Space</span>
+        </div>
+        <div class="vs-row">
+          <span>Network Stack</span>
+          <span class="vs-col mono">Kernel</span>
+          <span class="vs-col micro">User Space</span>
+        </div>
+        <div class="vs-row">
+          <span>Crash Isolation</span>
+          <span class="vs-col mono">Full Panic</span>
+          <span class="vs-col micro">Per-Process</span>
+        </div>
+        <div class="vs-row">
+          <span>Security Model</span>
+          <span class="vs-col mono">Coarse</span>
+          <span class="vs-col micro">Fine-Grained</span>
+        </div>
+        <div class="vs-row">
+          <span>Service Restart</span>
+          <span class="vs-col mono">Reboot</span>
+          <span class="vs-col micro">Live</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 3: ARCHITECTURE ===== -->
+<section class="slide slide-arch" id="slide-2">
+  <div class="slide-inner">
+    <div class="label center">System Architecture</div>
+    <h2>Kernel Space vs User Space</h2>
+    <div class="arch-diagram">
+      <div class="arch-layer user">
+        <div class="layer-title">User Space - System Services & Applications</div>
+        <div class="arch-services">
+          <div class="arch-service">Shell / Commands</div>
+          <div class="arch-service">X Window System</div>
+          <div class="arch-service">GUI Stack</div>
+          <div class="arch-service">TCP/IP Network</div>
+          <div class="arch-service">VFS Daemon</div>
+          <div class="arch-service">ext2 / ramfs</div>
+          <div class="arch-service">VirtIO Drivers</div>
+          <div class="arch-service">Display / Input</div>
+          <div class="arch-service">Session Manager</div>
+        </div>
+      </div>
+      <div class="arch-syscall">System Call Interface &middot; SYS_* &middot; ~96 calls</div>
+      <div class="arch-layer kernel">
+        <div class="layer-title">Kernel Space - Privileged Mode</div>
+        <div class="arch-kernel-mods">
+          <div class="arch-kmod">Scheduler</div>
+          <div class="arch-kmod">IPC</div>
+          <div class="arch-kmod">Process Mgmt</div>
+          <div class="arch-kmod">Memory Mgmt</div>
+          <div class="arch-kmod">IRQ Routing</div>
+          <div class="arch-kmod">SMP / IPI</div>
+          <div class="arch-kmod">Signals</div>
+          <div class="arch-kmod">Semaphores</div>
+        </div>
+      </div>
+    </div>
+    <div class="arch-hw-strip">
+      <span><span class="hw-dot"></span> ARMv5/v6/v7/v8</span>
+      <span><span class="hw-dot"></span> RISC-V RV64</span>
+      <span><span class="hw-dot"></span> x86 i386</span>
+      <span><span class="hw-dot"></span> x86_64</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 4: KERNEL CORE ===== -->
+<section class="slide slide-kernel" id="slide-3">
+  <div class="slide-inner">
+    <div class="label">Kernel Internals</div>
+    <div class="section-divider"></div>
+    <h2>Minimal, Focused, Efficient</h2>
+    <div class="kernel-grid">
+      <div class="kernel-card reveal">
+        <div class="card-icon">◷</div>
+        <h3>Preemptive Scheduler</h3>
+        <p>Round-robin with priority levels. Per-core run queues in SMP mode. Statistical process accounting with idle time tracking for precise CPU utilization.</p>
+        <div class="card-meta">
+          <span class="card-tag">schedule.c</span>
+          <span class="card-tag">proc.c</span>
+        </div>
+      </div>
+      <div class="kernel-card reveal reveal-delay-1">
+        <div class="card-icon">⇄</div>
+        <h3>Synchronous IPC</h3>
+        <p>Rendezvous-style message passing. Client blocks until server responds. Timeout recovery prevents deadlocks. Cross-core dispatch via IPI wakeups.</p>
+        <div class="card-meta">
+          <span class="card-tag">ipc.c</span>
+          <span class="card-tag">10s timeout</span>
+        </div>
+      </div>
+      <div class="kernel-card reveal reveal-delay-2">
+        <div class="card-icon">⊞</div>
+        <h3>Process Management</h3>
+        <p>Fork with Copy-on-Write, exec, exit, waitpid. UID/GID-based isolation. Capability-gated syscalls for root vs user-space privilege separation.</p>
+        <div class="card-meta">
+          <span class="card-tag">proc.c</span>
+          <span class="card-tag">signal.c</span>
+        </div>
+      </div>
+      <div class="kernel-card reveal">
+        <div class="card-icon">⬡</div>
+        <h3>Virtual Memory</h3>
+        <p>4K paging with multi-level page tables. COW page ref counting. Shared memory up to 128 MB. DMA allocator for physically contiguous regions.</p>
+        <div class="card-meta">
+          <span class="card-tag">mm/mmu.c</span>
+          <span class="card-tag">mm/kalloc.c</span>
+        </div>
+      </div>
+      <div class="kernel-card reveal reveal-delay-3">
+        <div class="card-icon">↯</div>
+        <h3>IRQ Routing</h3>
+        <p>Hardware interrupts routed to user-space handlers. Per-process IRQ registration. Dedicated interrupt stacks for safe in-kernel dispatch.</p>
+        <div class="card-meta">
+          <span class="card-tag">interrupt.c</span>
+          <span class="card-tag">irq.c</span>
+        </div>
+      </div>
+      <div class="kernel-card reveal reveal-delay-4">
+        <div class="card-icon">⬒</div>
+        <h3>SMP Support</h3>
+        <p>Per-core scheduling with spinlock sync. IPI-based cross-core coordination. PSCI secondary boot on ARM. GICv3 interrupt routing. Up to 4 cores.</p>
+        <div class="card-meta">
+          <span class="card-tag">smp/core.c</span>
+          <span class="card-tag">system.c</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE: PROCESS LIFECYCLE ===== -->
+<section class="slide slide-proc-life" id="slide-4">
+  <div class="slide-inner">
+    <div class="label">Process Management</div>
+    <div class="section-divider"></div>
+    <h2>Process Lifecycle State Machine</h2>
+    <div class="proc-state-machine">
+      <div class="proc-state created reveal">
+        <div class="state-name">CREATED</div>
+        <div class="state-desc">fork() / exec()</div>
+      </div>
+      <div class="proc-arrow reveal"><span>→</span>proc_ready()</div>
+      <div class="proc-state ready reveal reveal-delay-1">
+        <div class="state-name">READY</div>
+        <div class="state-desc">In run queue</div>
+      </div>
+      <div class="proc-arrow reveal"><span>→</span>sched_pick()</div>
+      <div class="proc-state running reveal reveal-delay-2">
+        <div class="state-name">RUNNING</div>
+        <div class="state-desc">On CPU core</div>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:center;gap:40px;flex-wrap:wrap;margin-bottom:44px">
+      <div class="proc-arrow reveal" style="flex-direction:column;align-items:center">
+        <span>↻</span>
+        <span style="display:block">timeslice expire</span>
+      </div>
+      <div class="proc-arrow reveal" style="flex-direction:column;align-items:center">
+        <span>↓</span>
+        <span style="display:block">SYS_IPC_CALL</span>
+      </div>
+      <div class="proc-arrow reveal" style="flex-direction:column;align-items:center">
+        <span>↓</span>
+        <span style="display:block">SYS_SIG_KILL</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap">
+      <div class="proc-state ready reveal" style="margin-right:8px">
+        <div class="state-name">READY</div>
+        <div class="state-desc">Preempted back to queue</div>
+      </div>
+      <div class="proc-arrow reveal" style="flex-direction:column;align-items:center;margin:0 8px">
+        <span>←</span>
+        <span style="display:block">reschedule</span>
+      </div>
+      <div class="proc-state running reveal">
+        <div class="state-name">RUNNING</div>
+        <div class="state-desc">Continues execution</div>
+      </div>
+      <div class="proc-arrow reveal" style="flex-direction:column;align-items:center;margin:0 8px">
+        <span>→</span>
+        <span style="display:block">ipc_wait()</span>
+      </div>
+      <div class="proc-state blocked reveal reveal-delay-1">
+        <div class="state-name">BLOCKED</div>
+        <div class="state-desc">Waiting for IPC</div>
+      </div>
+      <div class="proc-arrow reveal" style="flex-direction:column;align-items:center;margin:0 8px">
+        <span>→</span>
+        <span style="display:block">ipc_wakeup()</span>
+      </div>
+      <div class="proc-state zombie reveal reveal-delay-2">
+        <div class="state-name">ZOMBIE</div>
+        <div class="state-desc">exit(), waitpid()</div>
+      </div>
+    </div>
+    <div class="proc-details">
+      <div class="proc-detail-card">
+        <h4>Fork + Copy-on-Write</h4>
+        <p>Child shares read-only pages with parent via <code>map_page_ref</code>. Physical page copy deferred until first write, saving memory and startup time.</p>
+      </div>
+      <div class="proc-detail-card">
+        <h4>Capability-Based Privilege</h4>
+        <p>Root processes (uid=-1) bypass syscall checks. User processes (uid&gt;0) restricted from DMA, MMIO mapping, IRQ registration, and priority changes.</p>
+      </div>
+      <div class="proc-detail-card">
+        <h4>Signal Delivery</h4>
+        <p>Two signals: <code>SYS_SIG_STOP</code> (suspend) and <code>SYS_SIG_KILL</code> (terminate). Delivery hijacks the target's context to run its user-space signal handler.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 5: IPC ===== -->
+<section class="slide slide-ipc" id="slide-5">
+  <div class="slide-inner">
+    <div class="grid-2">
+      <div>
+        <div class="label">Inter-Process Communication</div>
+        <div class="section-divider"></div>
+        <h2>Synchronous Message Passing</h2>
+        <p>
+          IPC is the backbone of every microkernel. EwokOS uses synchronous,
+          rendezvous-style message passing: the kernel mediates but never buffers.
+          Data flows directly between client and server address spaces.
+        </p>
+        <div class="ipc-flow">
+          <div class="ipc-step">
+            <span class="step-num">1</span>
+            <span class="step-text">Client issues call</span>
+            <span class="step-fn">SYS_IPC_CALL</span>
+          </div>
+          <div class="ipc-step">
+            <span class="step-num">2</span>
+            <span class="step-text">Kernel blocks client, wakes server</span>
+            <span class="step-fn">ipc_do_task()</span>
+          </div>
+          <div class="ipc-step">
+            <span class="step-num">3</span>
+            <span class="step-text">Server reads caller arguments</span>
+            <span class="step-fn">SYS_IPC_GET_ARG</span>
+          </div>
+          <div class="ipc-step">
+            <span class="step-num">4</span>
+            <span class="step-text">Server writes return data</span>
+            <span class="step-fn">SYS_IPC_END</span>
+          </div>
+          <div class="ipc-step">
+            <span class="step-num">5</span>
+            <span class="step-text">Client retrieves response</span>
+            <span class="step-fn">SYS_IPC_GET_RETURN</span>
+          </div>
+        </div>
+      </div>
+      <div class="ipc-visual">
+        <div class="ipc-entities">
+          <div class="ipc-entity client">Client Process</div>
+          <div class="ipc-arrow">
+            <span class="ipc-arrow-label">REQUEST</span>
+            <div class="ipc-arrow-line"></div>
+            <span class="ipc-arrow-label">RESPONSE</span>
+          </div>
+          <div class="ipc-entity server">Server Process</div>
+        </div>
+        <div class="ipc-detail">
+          Service discovery via the <strong>core</strong> name server using
+          string identifiers like <code style="color:var(--code)">IPC_SERV_VFS</code>.
+          Supports <strong>IPC_NON_RETURN</strong> for fire-and-forget calls
+          and <strong>IPC_LAZY</strong> for deferred processing to optimize throughput.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE: SYSCALL FLOW ===== -->
+<section class="slide slide-syscall" id="slide-6">
+  <div class="slide-inner">
+    <div class="label">System Call Interface</div>
+    <div class="section-divider"></div>
+    <h2>From User Space to Kernel and Back</h2>
+    <p class="subhead">
+      Every system service request traverses the syscall boundary. EwokOS exposes ~96 system calls
+      organized by function category, each with capability-based access control.
+    </p>
+    <div class="syscall-diagram">
+      <div class="syscall-box user reveal">User Process → <code style="color:var(--code)">svc #N</code> (SVC instruction / ECALL)</div>
+      <div class="syscall-arrow-down reveal">trap to EL1 / M-mode</div>
+      <div class="syscall-box kern reveal"><code style="color:var(--code)">svc_handler()</code> → <code style="color:var(--code)">sys_call_tbl[N]()</code> dispatch</div>
+      <div class="syscall-arrow-down reveal">capability check + execute</div>
+      <div class="syscall-box user reveal">Return value → User Process resumes</div>
+    </div>
+    <div class="syscall-category">
+      <div class="syscall-cat">
+        <h4>Process</h4>
+        <div class="sc-item">SYS_PROC_FORK</div>
+        <div class="sc-item">SYS_PROC_EXEC</div>
+        <div class="sc-item">SYS_PROC_EXIT</div>
+        <div class="sc-item">SYS_PROC_WAITPID</div>
+        <div class="sc-item">SYS_PROC_GETPID</div>
+      </div>
+      <div class="syscall-cat">
+        <h4>IPC</h4>
+        <div class="sc-item">SYS_IPC_CALL</div>
+        <div class="sc-item">SYS_IPC_GET_ARG</div>
+        <div class="sc-item">SYS_IPC_SET_RETURN</div>
+        <div class="sc-item">SYS_IPC_END</div>
+        <div class="sc-item">SYS_IPC_SETUP</div>
+      </div>
+      <div class="syscall-cat">
+        <h4>Memory</h4>
+        <div class="sc-item">SYS_MEM_MAP</div>
+        <div class="sc-item">SYS_PAGE_MAP</div>
+        <div class="sc-item">SYS_SHM_ALLOC</div>
+        <div class="sc-item">SYS_SHM_MAP</div>
+        <div class="sc-item">SYS_DMA_ALLOC</div>
+      </div>
+      <div class="syscall-cat">
+        <h4>System</h4>
+        <div class="sc-item">SYS_SEM_ALLOC</div>
+        <div class="sc-item">SYS_SEM_ENTER</div>
+        <div class="sc-item">SYS_SIG_SETUP</div>
+        <div class="sc-item">SYS_IRQ_SETUP</div>
+        <div class="sc-item">SYS_GET_UPTIME</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 7: MEMORY ===== -->
+<section class="slide slide-memory" id="slide-7">
+  <div class="slide-inner">
+    <div class="label">Memory Management</div>
+    <div class="section-divider"></div>
+    <h2>Virtual Memory with Copy-on-Write</h2>
+    <div class="mem-layout">
+      <div class="mem-segment kernel-mem">
+        <span class="mem-name">KERNEL_IMAGE</span>
+        <span class="mem-range">0xFFFF0000_0000</span>
+        <span class="mem-desc">Kernel code, data, BSS segments</span>
+      </div>
+      <div class="mem-segment kernel-mem">
+        <span class="mem-name">PAGE_DIR</span>
+        <span class="mem-range">+256 KB</span>
+        <span class="mem-desc">Page directory tables</span>
+      </div>
+      <div class="mem-segment kernel-mem">
+        <span class="mem-name">KMALLOC</span>
+        <span class="mem-range">heap</span>
+        <span class="mem-desc">Kernel heap allocator (variable sizes)</span>
+      </div>
+      <div class="mem-segment mmio-mem">
+        <span class="mem-name">MMIO_BASE</span>
+        <span class="mem-range">up to 128 MB</span>
+        <span class="mem-desc">Memory-mapped I/O region</span>
+      </div>
+      <div class="mem-segment user-mem">
+        <span class="mem-name">USER_STACK_TOP</span>
+        <span class="mem-range">max 64 MB</span>
+        <span class="mem-desc">Per-process user stack (grows down)</span>
+      </div>
+      <div class="mem-segment user-mem">
+        <span class="mem-name">SHM_BASE</span>
+        <span class="mem-range">max 128 MB</span>
+        <span class="mem-desc">Inter-process shared memory region</span>
+      </div>
+      <div class="mem-segment kernel-mem">
+        <span class="mem-name">DMA_V_BASE</span>
+        <span class="mem-range">phys. contiguous</span>
+        <span class="mem-desc">DMA region for direct hardware access</span>
+      </div>
+    </div>
+    <div class="mem-features">
+      <div class="mem-feat reveal">
+        <h4>Copy-on-Write Fork</h4>
+        <p>Child shares read-only pages with parent. Physical copy deferred until first write via <code style="color:var(--code);font-size:11px">map_page_ref</code> reference counting.</p>
+      </div>
+      <div class="mem-feat reveal">
+        <h4>Physical Page Allocator</h4>
+        <p>Manages 4K blocks from allocable physical memory. Buddy-style coalescing reduces fragmentation in the free page pool.</p>
+      </div>
+      <div class="mem-feat reveal">
+        <h4>Shared Memory</h4>
+        <p>Up to 128 MB of shared memory mapped into multiple process address spaces for zero-copy data exchange between services.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE: PAGE TABLE WALK ===== -->
+<section class="slide slide-pagetable" id="slide-8">
+  <div class="slide-inner">
+    <div class="label">Memory Addressing</div>
+    <div class="section-divider"></div>
+    <h2>Multi-Level Page Table Walk</h2>
+    <p class="subhead">
+      Virtual addresses are translated to physical addresses through a multi-level page table.
+      Each level indexes into the next, narrowing down to the final 4K physical page frame.
+    </p>
+    <div class="pt-walk">
+      <div class="pt-level reveal">
+        <div class="pt-label">Level 0 (PGD)</div>
+        <div class="pt-boxes">
+          <div class="pt-box">[0] → 0x1000</div>
+          <div class="pt-box">[1] → 0x2000</div>
+          <div class="pt-box match">[2] → 0x3000 ✓</div>
+          <div class="pt-box">[3] → 0x4000</div>
+        </div>
+      </div>
+      <div class="pt-arrow-between">
+        <div class="pt-arrow-line"></div>
+        <div class="pt-bits">VA[47:39]</div>
+      </div>
+      <div class="pt-level reveal reveal-delay-1">
+        <div class="pt-label">Level 1 (PUD)</div>
+        <div class="pt-boxes">
+          <div class="pt-box">[0] → 0x3100</div>
+          <div class="pt-box match">[1] → 0x3200 ✓</div>
+          <div class="pt-box">[2] → 0x3300</div>
+        </div>
+      </div>
+      <div class="pt-arrow-between">
+        <div class="pt-arrow-line"></div>
+        <div class="pt-bits">VA[38:30]</div>
+      </div>
+      <div class="pt-level reveal reveal-delay-2">
+        <div class="pt-label">Level 2 (PMD)</div>
+        <div class="pt-boxes">
+          <div class="pt-box">[0] → 0x3210</div>
+          <div class="pt-box">[1] → 0x3220</div>
+          <div class="pt-box match">[2] → 0x3230 ✓</div>
+        </div>
+      </div>
+      <div class="pt-arrow-between">
+        <div class="pt-arrow-line"></div>
+        <div class="pt-bits">VA[29:21]</div>
+      </div>
+      <div class="pt-level reveal reveal-delay-3">
+        <div class="pt-label">Level 3 (PTE)</div>
+        <div class="pt-boxes">
+          <div class="pt-box">[0] → 0x4000</div>
+          <div class="pt-box match">[1] → 0x5000 ✓</div>
+          <div class="pt-box">[2] → 0x6000</div>
+        </div>
+      </div>
+    </div>
+    <div class="pt-result reveal">Physical Page: 0x5000 + VA[11:0] offset → Final Physical Address</div>
+    <div class="pt-features">
+      <div class="mem-feat reveal">
+        <h4>Page Ref Counting</h4>
+        <p>Each physical page tracks how many virtual mappings reference it via <code style="color:var(--code);font-size:11px">map_page_ref</code>. Page freed only when count reaches zero.</p>
+      </div>
+      <div class="mem-feat reveal">
+        <h4>TLB Coherence</h4>
+        <p>Page table modifications trigger architecture-specific TLB invalidations. ARM uses TLBI instructions; x86 uses INVLPG. SMP cores receive TLB shootdown IPIs.</p>
+      </div>
+      <div class="mem-feat reveal">
+        <h4>Kernel/User Split</h4>
+        <p>Higher half kernel design: top VA bits select kernel (TTBR1) vs user (TTBR0) translation tables. Kernel mapped identically across all process address spaces.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 9: SMP ===== -->
+<section class="slide slide-smp" id="slide-9">
+  <div class="slide-inner">
+    <div class="label">Multi-Core Support</div>
+    <div class="section-divider"></div>
+    <h2>Symmetric Multi-Processing</h2>
+    <p class="subhead">
+      Full SMP with per-core run queues, IPI-based cross-core wakeup, kernel spinlocks,
+      and load-aware scheduling for up to 4 cores on ARM64 QEMU virt.
+    </p>
+    <div class="smp-diagram">
+      <div class="smp-core reveal">
+        <div class="core-id">Core 0 · Primary</div>
+        <div class="core-queue">
+          <div class="queue-slot active"></div>
+          <div class="queue-slot active"></div>
+          <div class="queue-slot"></div>
+          <div class="queue-slot"></div>
+        </div>
+        <div class="core-label">Run Queue<br>+ Idle Process</div>
+      </div>
+      <div class="smp-core reveal reveal-delay-1">
+        <div class="core-id">Core 1 · Secondary</div>
+        <div class="core-queue">
+          <div class="queue-slot active"></div>
+          <div class="queue-slot"></div>
+          <div class="queue-slot"></div>
+          <div class="queue-slot"></div>
+        </div>
+        <div class="core-label">Run Queue<br>+ Idle Process</div>
+      </div>
+      <div class="smp-core reveal reveal-delay-2">
+        <div class="core-id">Core 2 · Secondary</div>
+        <div class="core-queue">
+          <div class="queue-slot active"></div>
+          <div class="queue-slot active"></div>
+          <div class="queue-slot active"></div>
+          <div class="queue-slot"></div>
+        </div>
+        <div class="core-label">Run Queue<br>+ Idle Process</div>
+      </div>
+      <div class="smp-core reveal reveal-delay-3">
+        <div class="core-id">Core 3 · Secondary</div>
+        <div class="core-queue">
+          <div class="queue-slot active"></div>
+          <div class="queue-slot"></div>
+          <div class="queue-slot"></div>
+          <div class="queue-slot"></div>
+        </div>
+        <div class="core-label">Run Queue<br>+ Idle Process</div>
+      </div>
+    </div>
+    <div class="smp-ipis">
+      <span>IPI Cross-Core Wakeup</span>
+      <span>Per-Core Spinlocks</span>
+      <span>PSCI Secondary Boot</span>
+      <span>GICv3 IRQ Routing</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 10: SERVICES ===== -->
+<section class="slide slide-services" id="slide-10">
+  <div class="slide-inner">
+    <div class="label center">User-Space Services</div>
+    <h2>Everything Outside the Kernel</h2>
+    <div class="services-grid">
+      <div class="service-cat reveal">
+        <div class="cat-icon">📁</div>
+        <h4>File Systems</h4>
+        <div class="svc-item">vfsd · VFS Daemon</div>
+        <div class="svc-item">sdfsd · ext2 on SD</div>
+        <div class="svc-item">ramfsd · RAM Disk</div>
+        <div class="svc-item">virtfsd · 9P virtfs</div>
+      </div>
+      <div class="service-cat reveal reveal-delay-1">
+        <div class="cat-icon">⎔</div>
+        <h4>Device Drivers</h4>
+        <div class="svc-item">fbd · Framebuffer</div>
+        <div class="svc-item">keybd · Keyboard</div>
+        <div class="svc-item">moused · Mouse</div>
+        <div class="svc-item">snd · Audio Device</div>
+        <div class="svc-item">ttyd · Terminal</div>
+      </div>
+      <div class="service-cat reveal reveal-delay-2">
+        <div class="cat-icon">⎇</div>
+        <h4>Network Stack</h4>
+        <div class="svc-item">netd · TCP/IP Stack</div>
+        <div class="svc-item">httpd · HTTP Server</div>
+        <div class="svc-item">telnetd · Telnet</div>
+        <div class="svc-item">timed · Time Sync</div>
+      </div>
+      <div class="service-cat reveal reveal-delay-3">
+        <div class="cat-icon">◫</div>
+        <h4>GUI & Display</h4>
+        <div class="svc-item">displayd · Display Mgr</div>
+        <div class="svc-item">consoled · Console</div>
+        <div class="svc-item">fontd · Font Engine</div>
+        <div class="svc-item">xserverd · X Server</div>
+        <div class="svc-item">EwokWM · Window Mgr</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 11: PLATFORMS ===== -->
+<section class="slide slide-platform" id="slide-11">
+  <div class="slide-inner">
+    <div class="label center">Cross-Platform</div>
+    <h2>One Kernel, Five Architectures</h2>
+    <div class="platform-grid">
+      <div class="platform-card reveal">
+        <div class="arch-icon">🖥</div>
+        <div class="arch-name">ARM 64-bit</div>
+        <div class="arch-variants">ARMv8 / AArch64</div>
+        <div class="arch-boards">
+          <span class="board-tag">QEMU virt</span>
+          <span class="board-tag">Raspberry Pi 3</span>
+          <span class="board-tag">Raspberry Pi 4</span>
+        </div>
+      </div>
+      <div class="platform-card reveal reveal-delay-1">
+        <div class="arch-icon">📟</div>
+        <div class="arch-name">ARM 32-bit</div>
+        <div class="arch-variants">ARMv5 / v6 / v7</div>
+        <div class="arch-boards">
+          <span class="board-tag">RPi 1 / Zero</span>
+          <span class="board-tag">Raspberry Pi 2</span>
+          <span class="board-tag">Orange Pi</span>
+          <span class="board-tag">LEGO EV3</span>
+        </div>
+      </div>
+      <div class="platform-card reveal reveal-delay-2">
+        <div class="arch-icon">🔷</div>
+        <div class="arch-name">RISC-V 64</div>
+        <div class="arch-variants">RV64 / SBI</div>
+        <div class="arch-boards">
+          <span class="board-tag">QEMU virt</span>
+        </div>
+      </div>
+      <div class="platform-card reveal reveal-delay-3">
+        <div class="arch-icon">💻</div>
+        <div class="arch-name">x86</div>
+        <div class="arch-variants">i386 / x86_64</div>
+        <div class="arch-boards">
+          <span class="board-tag">PC Compatible</span>
+          <span class="board-tag">QEMU</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 12: ADVANTAGES ===== -->
+<section class="slide slide-advantages" id="slide-12">
+  <div class="slide-inner">
+    <div class="label">Why EwokOS</div>
+    <div class="section-divider"></div>
+    <h2>Microkernel Advantages in Practice</h2>
+    <div class="advantages-grid">
+      <div class="advantage-card reveal">
+        <div class="adv-icon">◈</div>
+        <div>
+          <h4>Fault Isolation</h4>
+          <p>A crash in a device driver or file system server cannot bring down the kernel. Each service is an isolated process with its own address space and privilege level.</p>
+        </div>
+      </div>
+      <div class="advantage-card reveal">
+        <div class="adv-icon">▥</div>
+        <div>
+          <h4>Modular by Design</h4>
+          <p>Add or remove system services at runtime. Start only the drivers your hardware needs. The system adapts to the machine, not the other way around.</p>
+        </div>
+      </div>
+      <div class="advantage-card reveal">
+        <div class="adv-icon">◒</div>
+        <div>
+          <h4>Fine-Grained Security</h4>
+          <p>Each service runs under its own UID/GID with capability-based syscall access. Root privilege is not required for driver operation.</p>
+        </div>
+      </div>
+      <div class="advantage-card reveal">
+        <div class="adv-icon">⟳</div>
+        <div>
+          <h4>Live Service Restart</h4>
+          <p>Failed services restart without a full reboot. The core name server re-registers services and clients reconnect transparently via fresh IPC lookups.</p>
+        </div>
+      </div>
+      <div class="advantage-card reveal">
+        <div class="adv-icon">⬒</div>
+        <div>
+          <h4>SMP Scalability</h4>
+          <p>Per-core scheduling eliminates global lock contention. Services naturally distribute across available cores via the scheduler's load-aware dispatch.</p>
+        </div>
+      </div>
+      <div class="advantage-card reveal">
+        <div class="adv-icon">◫</div>
+        <div>
+          <h4>Educational Value</h4>
+          <p>Clean architecture with well-defined boundaries makes EwokOS an ideal platform for learning OS internals. The codebase is approachable, with inline race-condition analysis.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 13: BOOT SEQUENCE ===== -->
+<section class="slide slide-boot" id="slide-13">
+  <div class="slide-inner">
+    <div class="label">Boot Sequence</div>
+    <div class="section-divider"></div>
+    <h2>From Power-On to User Space</h2>
+    <div class="boot-flow">
+      <div class="boot-step reveal">
+        <div class="step-order">Stage 1</div>
+        <div class="step-title">Bootloader</div>
+        <div class="step-file">boot.S</div>
+      </div>
+      <div class="boot-arrow">→</div>
+      <div class="boot-step reveal reveal-delay-1">
+        <div class="step-order">Stage 2</div>
+        <div class="step-title">Kernel Entry</div>
+        <div class="step-file">kernel.c</div>
+      </div>
+      <div class="boot-arrow">→</div>
+      <div class="boot-step reveal reveal-delay-2">
+        <div class="step-order">Stage 3</div>
+        <div class="step-title">VM Setup</div>
+        <div class="step-file">mm/mmu.c</div>
+      </div>
+      <div class="boot-arrow">→</div>
+      <div class="boot-step reveal reveal-delay-3">
+        <div class="step-order">Stage 4</div>
+        <div class="step-title">Load Init</div>
+        <div class="step-file">loadinit.c</div>
+      </div>
+      <div class="boot-arrow">→</div>
+      <div class="boot-step reveal reveal-delay-4">
+        <div class="step-order">Stage 5</div>
+        <div class="step-title">User Init</div>
+        <div class="step-file">/sbin/init</div>
+      </div>
+    </div>
+    <div class="boot-detail">
+      <div class="boot-detail-card">
+        <h4>Arch-Specific Boot</h4>
+        <p>Each platform has its own boot.S: ARM sets up exception levels and GIC, x86 enters long mode, RISC-V initializes SBI. Platform code lives in <code style="color:var(--code);font-size:11px">kernel/platform/</code>.</p>
+      </div>
+      <div class="boot-detail-card">
+        <h4>SMP Secondary Cores</h4>
+        <p>Primary core initializes kernel, then wakes secondaries via PSCI (ARM) or APIC IPI (x86). Each core gets its own idle process and run queue.</p>
+      </div>
+      <div class="boot-detail-card">
+        <h4>Init Process Chain</h4>
+        <p>Kernel loads VFS daemon from ext2 rootfs. VFS then spawns core name server, device drivers, and session manager via <code style="color:var(--code);font-size:11px">init.rd</code> scripts.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SLIDE 14: GET STARTED ===== -->
+<section class="slide slide-start" id="slide-14">
+  <div class="slide-inner">
+    <div class="label center">Get Started</div>
+    <h2>Build. Run. Explore.</h2>
+    <p class="subhead">
+      Clone the repository and boot EwokOS in QEMU in under a minute.
+    </p>
+    <div class="code-block">
+      <div class="line"><span class="comment"># Clone the repository</span></div>
+      <div class="line"><span class="prompt">$</span> <span class="cmd">git clone</span> https://github.com/misazhu/EwokOS</div>
+      <div class="line"><span class="prompt">$</span> <span class="cmd">cd</span> EwokOS/machine.virt</div>
+      <div class="line"></div>
+      <div class="line"><span class="comment"># Build and run (ARM64 QEMU virt)</span></div>
+      <div class="line"><span class="prompt">$</span> <span class="cmd">make</span> <span class="arg">run</span></div>
+      <div class="line"></div>
+      <div class="line"><span class="comment"># SMP mode with 4 cores</span></div>
+      <div class="line"><span class="prompt">$</span> <span class="cmd">make</span> <span class="arg">run SMP=yes</span></div>
+      <div class="line"></div>
+      <div class="line"><span class="comment"># Full build with extra apps + X Window</span></div>
+      <div class="line"><span class="prompt">$</span> <span class="cmd">make</span> <span class="arg">run SMP=yes EXTRA=yes</span></div>
+    </div>
+    <div class="start-links">
+      <a href="https://github.com/misazhu/EwokOS" class="btn btn-primary" target="_blank" rel="noopener">
+        View on GitHub
+      </a>
+      <a href="https://github.com/misazhu/EwokOS/blob/master/README.md" class="btn btn-secondary" target="_blank" rel="noopener">
+        Read Documentation
+      </a>
+    </div>
+  </div>
+</section>
+
+<script>
+/* === Slide Navigation === */
+const slides = document.querySelectorAll('.slide');
+const dots = document.querySelectorAll('.nav-dot');
+const counter = document.getElementById('currentSlide');
+const progress = document.getElementById('slideProgress');
+const scrollHint = document.getElementById('scrollHint');
+const totalSlides = slides.length;
+
+function updateNavigation(index) {
+  dots.forEach(d => d.classList.remove('active'));
+  const activeDot = document.querySelector(`.nav-dot[data-slide="${index}"]`);
+  if (activeDot) activeDot.classList.add('active');
+  if (counter) counter.textContent = String(index + 1).padStart(2, '0');
+  if (progress) progress.style.width = `${((index + 1) / totalSlides) * 100}%`;
+}
+
+/* Intersection Observer for slide tracking */
+const observerOptions = { threshold: 0.5 };
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const index = Array.from(slides).indexOf(entry.target);
+      if (index >= 0) {
+        updateNavigation(index);
+        /* Hide scroll hint after first slide */
+        if (index > 0 && scrollHint) {
+          scrollHint.classList.add('hidden');
+        } else if (scrollHint) {
+          scrollHint.classList.remove('hidden');
+        }
+      }
+    }
+  });
+}, observerOptions);
+
+slides.forEach(slide => observer.observe(slide));
+
+/* Click navigation */
+dots.forEach(dot => {
+  dot.addEventListener('click', () => {
+    const index = parseInt(dot.dataset.slide);
+    slides[index].scrollIntoView({ behavior: 'smooth' });
+  });
+});
+
+/* Keyboard navigation */
+document.addEventListener('keydown', (e) => {
+  const current = Array.from(slides).findIndex(s => {
+    const rect = s.getBoundingClientRect();
+    return rect.top >= -100 && rect.top <= 100;
+  });
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === ' ') {
+    e.preventDefault();
+    const next = Math.min(current + 1, totalSlides - 1);
+    if (next !== current) slides[next].scrollIntoView({ behavior: 'smooth' });
+  }
+
+  if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+    e.preventDefault();
+    const prev = Math.max(current - 1, 0);
+    if (prev !== current) slides[prev].scrollIntoView({ behavior: 'smooth' });
+  }
+
+  if (e.key === 'Home') {
+    e.preventDefault();
+    slides[0].scrollIntoView({ behavior: 'smooth' });
+  }
+
+  if (e.key === 'End') {
+    e.preventDefault();
+    slides[totalSlides - 1].scrollIntoView({ behavior: 'smooth' });
+  }
+});
+
+/* Scroll-reveal animations */
+if (window.matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+  const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        revealObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
+}
+
+/* Set initial state */
+updateNavigation(0);
+</script>
+
+</body>
+</html>
